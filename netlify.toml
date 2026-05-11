@@ -1,0 +1,26 @@
+[build]
+  publish = "public"
+
+# Proxy /api/gh/* to the GitHub Contents API function
+[[redirects]]
+  from = "/api/gh/*"
+  to   = "/.netlify/functions/gh-proxy/:splat"
+  status = 200
+
+# Proxy /api/raw/* to the raw content function (serves files with CORS headers)
+[[redirects]]
+  from = "/api/raw/*"
+  to   = "/.netlify/functions/raw-proxy/:splat"
+  status = 200
+
+# Serve preview.html for all /preview/* paths (SPA-style)
+[[redirects]]
+  from = "/preview/*"
+  to   = "/preview.html"
+  status = 200
+
+# Root redirect to usage page
+[[redirects]]
+  from = "/"
+  to   = "/preview.html"
+  status = 200
