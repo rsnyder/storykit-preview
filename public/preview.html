@@ -628,21 +628,13 @@ function buildLiquidEngine(o, r, ref, context) {
   });
 
   // ── Encoding filters ─────────────────────────────────────────────────────
-  // uri_escape note: Jekyll's CGI.escape applies to the whole string, but
-  // in practice Chirpy templates call it on accumulated query strings like
-  //   qs | append: "&caption=" | append: value | uri_escape
-  // which would encode the existing key=value pairs if we used encodeURIComponent
-  // naively. We detect this case and encode only the final value segment.
-  engine.registerFilter('uri_escape', v => {
-    const s = String(v || '');
-    const lastEq  = s.lastIndexOf('=');
-    const lastAmp = s.lastIndexOf('&');
-    if (lastEq > 0 && lastEq > lastAmp) {
-      // Looks like an accumulated query string — encode only the value after the last =
-      return s.slice(0, lastEq + 1) + encodeURIComponent(s.slice(lastEq + 1));
-    }
-    return encodeURIComponent(s);
-  });
+  // uri_escape uses encodeURI (not encodeURIComponent) to match LiquidJS native
+  // behavior. encodeURI preserves /, :, &, = and other valid URI characters.
+  // This is essential because embed/image.html relies on:
+  //   · first_char == '/' to detect root-relative URLs and prepend site.url
+  //   · accumulated query strings like "src=URL&caption=text" remaining parseable
+  //   · the explicit replace: '&', '%26' after uri_escape handling & in URL values
+  engine.registerFilter('uri_escape', v => encodeURI(String(v || '')));
   engine.registerFilter('url_decode', v => {
     try { return decodeURIComponent(String(v || '').replace(/\+/g, ' ')); }
     catch { return String(v || ''); }
@@ -750,7 +742,9 @@ function buildLiquidEngine(o, r, ref, context) {
    */
   async function evalLiquidValue(expr, ctx) {
     if (!expr) return expr;
-    const isDotted    = /^[a-zA-Z_][\w.\[\]]*\.[\w.\[\]]+$/.test(expr);
+    // isDotted: only match known Liquid scope roots (include.src, page.title, site.url, etc.)
+    // Filenames like "name_cloud.jpeg" look like dotted refs but must be treated as literals.
+    const isDotted    = /^(include|page|site|layout|content|paginator)\.[a-zA-Z_][\w.]*$/.test(expr);
     const isPlainWord = /^[a-zA-Z_][\w-]*$/.test(expr);
     if (!isDotted && !isPlainWord) return expr; // literal — return unchanged
     try {
