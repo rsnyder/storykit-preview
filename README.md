@@ -9,7 +9,7 @@ The service is a thin proxy around the existing [StoryKit preview renderer](http
 ## URL format
 
 ```
-/preview/:owner/:repo/:path/to/file.md?branch=main
+/:owner/:repo/:path/to/file.md?branch=main
 ```
 
 - `owner` and `repo` identify the GitHub repository.
@@ -18,7 +18,7 @@ The service is a thin proxy around the existing [StoryKit preview renderer](http
 
 **Example:**
 ```
-http://localhost:3000/preview/rsnyder/storykit-starter/_posts/2026-01-10-monument-valley.md
+http://localhost:3000/rsnyder/storykit-starter/_posts/2026-01-10-monument-valley.md
 ```
 
 ## Local development

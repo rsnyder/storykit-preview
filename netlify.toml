@@ -13,14 +13,8 @@
   to   = "/.netlify/functions/raw-proxy/:splat"
   status = 200
 
-# Serve preview.html for all /preview/* paths (SPA-style)
+# Serve preview.html for /:owner/:repo/*filepath — must follow /api/* rules
 [[redirects]]
-  from = "/preview/*"
-  to   = "/preview.html"
-  status = 200
-
-# Root redirect to usage page
-[[redirects]]
-  from = "/"
+  from = "/:owner/:repo/*"
   to   = "/preview.html"
   status = 200

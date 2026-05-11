@@ -230,7 +230,7 @@ function apiHeaders() {
 // ════════════════════════════════════════════════════════════════════════════
 
 function parsePayload() {
-  const parts = location.pathname.replace(/^\/preview\//, '').split('/');
+  const parts = location.pathname.replace(/^\//, '').split('/');
   if (parts.length < 3) return null;
   const o   = parts[0];
   const r   = parts[1];

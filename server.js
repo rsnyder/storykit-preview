@@ -28,11 +28,6 @@ if (LOCAL_REPO_PATH) {
 
 const app = express();
 
-// Serve preview.html for any /preview/* URL
-app.get('/preview/*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'preview.html'));
-});
-
 // ── GitHub file proxy ────────────────────────────────────────────────────────
 // Route: /api/gh/:owner/:repo/contents/*filepath?ref=:branch
 //
@@ -149,7 +144,14 @@ async function serveLocalFile(filepath, res) {
   }
 }
 
-// ── Root redirect ────────────────────────────────────────────────────────────
+// ── Preview route — catch-all for /:owner/:repo/*filepath ───────────────────
+// Must be defined after /api/* routes so those take precedence.
+
+app.get('/:owner/:repo/*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'preview.html'));
+});
+
+// ── Root landing page ─────────────────────────────────────────────────────────
 
 app.get('/', (req, res) => {
   res.send(`<!doctype html>
@@ -160,11 +162,11 @@ code{background:#f4f4f4;padding:.2em .4em;border-radius:3px}</style></head>
 <h1>StoryKit Preview Service</h1>
 <p>Render a StoryKit page without waiting for a GitHub Pages build.</p>
 <h2>Usage</h2>
-<p><code>/preview/<em>owner</em>/<em>repo</em>/<em>path/to/file.md</em></code></p>
+<p><code>/<em>owner</em>/<em>repo</em>/<em>path/to/file.md</em></code></p>
 <p>Optional: add <code>?branch=my-branch</code> to preview a specific branch (default: <code>main</code>).</p>
 <h2>Example</h2>
-<p><a href="/preview/rsnyder/storykit-starter/_posts/2026-01-10-monument-valley.md">
-/preview/rsnyder/storykit-starter/_posts/2026-01-10-monument-valley.md</a></p>
+<p><a href="/rsnyder/storykit-starter/_posts/2026-01-10-monument-valley.md">
+/rsnyder/storykit-starter/_posts/2026-01-10-monument-valley.md</a></p>
 ${LOCAL_REPO_PATH ? `<p><strong>Local mode:</strong> reading from <code>${LOCAL_REPO_PATH}</code></p>` : ''}
 </body></html>`);
 });
