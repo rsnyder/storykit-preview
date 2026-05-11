@@ -27,8 +27,6 @@ const MIME_TYPES = {
   ico:  'image/x-icon',
 };
 
-const fetchFn = globalThis.fetch ?? (await import('node-fetch')).default;
-
 export async function handler(event) {
   // Path: /api/raw/:owner/:repo/:ref/*filepath
   const suffix = event.path.replace(/^\/api\/raw\//, '');
@@ -52,7 +50,7 @@ export async function handler(event) {
   if (token) headers['Authorization'] = `token ${token}`;
 
   try {
-    const ghRes = await fetchFn(rawUrl, { headers });
+    const ghRes = await fetch(rawUrl, { headers });
     if (!ghRes.ok) return { statusCode: ghRes.status, body: '' };
 
     const ext      = path.extname(filepath).slice(1).toLowerCase();

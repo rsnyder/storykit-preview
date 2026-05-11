@@ -4,10 +4,6 @@
 // Route (via netlify.toml redirect):
 //   GET /api/gh/:owner/:repo/contents/*filepath?ref=:branch
 
-// node-fetch provides fetch() for Node runtimes that don't have it natively.
-// Netlify Functions run on Node 18+ which has native fetch, so this is a no-op there.
-const fetchFn = globalThis.fetch ?? (await import('node-fetch')).default;
-
 export async function handler(event) {
   // Strip the /api/gh/ prefix to get /:owner/:repo/contents/*filepath?ref=...
   const suffix = event.path.replace(/^\/api\/gh\//, '');
@@ -31,7 +27,7 @@ export async function handler(event) {
   if (token) headers['Authorization'] = `token ${token}`;
 
   try {
-    const ghRes = await fetchFn(githubUrl, { headers });
+    const ghRes = await fetch(githubUrl, { headers });
     const body  = await ghRes.text();
 
     return {
