@@ -807,18 +807,23 @@ function buildLiquidEngine(o, r, ref, context) {
   });
 
   // ── Server-side-only tag stubs ───────────────────────────────────────────
-  // These tags require the Jekyll build environment and cannot be replicated
-  // client-side. They render as visible placeholders so the developer knows
-  // something is missing, rather than silently producing broken output.
-  //
-  // TO ADD MORE STUBS: add the tag name to the array below.
-  for (const tag of ['seo','feed_meta','include_relative','paginate','post_url','highlight','endhighlight']) {
+  // Head-only tags (seo, feed_meta) generate <meta>/<link> elements and produce
+  // no visible output — stub them silently so they don't appear as placeholders.
+  for (const tag of ['seo', 'feed_meta']) {
+    try {
+      engine.registerTag(tag, { parse() {}, render() { return ''; } });
+    } catch { /* already registered */ }
+  }
+
+  // Content tags that can't run client-side render as visible placeholders so
+  // the author knows something is missing rather than getting silent broken output.
+  for (const tag of ['include_relative','paginate','post_url','highlight','endhighlight']) {
     try {
       engine.registerTag(tag, {
         parse(token) { this.raw = token.getText ? token.getText() : tag; },
         render() { return `<div class="include-placeholder">{% ${this.raw||tag} %} (server-side only)</div>`; }
       });
-    } catch { /* tag already registered */ }
+    } catch { /* already registered */ }
   }
 
   return engine;
@@ -1260,37 +1265,13 @@ async function render() {
     html = html.replace(/<\/head>/i, faLink + '\n</head>');
   }
 
-  // ── 10. Inject in-iframe preview banner ──────────────────────────────────
-  // A minimal banner inside the iframe showing the layout chain and timestamp.
-  // (Separate from the outer preview bar — this one travels with the content.)
-  const inlinebannerCss = `<style>
-    #__preview-banner {
-      position: fixed; top: 0; left: 0; right: 0; z-index: 99999;
-      display: flex; align-items: center; gap: 10px; padding: 4px 12px;
-      background: rgba(15,15,20,0.85); backdrop-filter: blur(6px);
-      font-family: ui-monospace, monospace; font-size: 11px; color: #8b949e;
-      border-bottom: 1px solid rgba(255,255,255,0.06);
-      pointer-events: none;
-    }
-    #__preview-banner .pb-badge {
-      background: #238636; color: #fff; border-radius: 3px;
-      padding: 1px 5px; font-weight: 700; font-size: 10px; pointer-events: none;
-    }
-  </style>`;
-  html = html.replace(/<\/head>/i, inlinebannerCss + '\n</head>');
-
-  const inlineBannerHtml = `<div id="__preview-banner">` +
-    `<span class="pb-badge">PREVIEW</span>` +
-    `<span>${layoutChain.map(l => l.name).join(' → ')} · ${new Date().toLocaleTimeString()}</span>` +
-    `</div>`;
-  // Add 'preview' class to <body> so authors can write custom CSS using
-  // .preview { ... } to adjust presentation specifically in preview context
+  // ── 10. Mark body as preview context ────────────────────────────────────────
+  // Add 'preview' class to <body> so authors can target preview-specific CSS.
   html = html.replace(/<body(\s[^>]*)?>/i, (match, attrs) => {
     const a = attrs || '';
     if (/\bclass=/i.test(a)) return match.replace(/\bclass="([^"]*)"/i, 'class="$1 preview"');
     return `<body${a} class="preview">`;
   });
-  html = html.replace(/(<body[^>]*>)/i, '$1' + inlineBannerHtml);
 
   // ── 11. Write to iframe ──────────────────────────────────────────────────
   document.getElementById('__preview-frame').srcdoc = html;
