@@ -663,13 +663,11 @@ function buildLiquidEngine(o, r, ref, context) {
   });
 
   // ── Encoding filters ─────────────────────────────────────────────────────
-  // uri_escape uses encodeURI (not encodeURIComponent) to match LiquidJS native
-  // behavior. encodeURI preserves /, :, &, = and other valid URI characters.
-  // This is essential because embed/image.html relies on:
-  //   · first_char == '/' to detect root-relative URLs and prepend site.url
-  //   · accumulated query strings like "src=URL&caption=text" remaining parseable
-  //   · the explicit replace: '&', '%26' after uri_escape handling & in URL values
-  engine.registerFilter('uri_escape', v => encodeURI(String(v || '')));
+  // uri_escape matches Jekyll's RFC 2396 encoder: encodes all characters not
+  // safe in URIs EXCEPT % (so already-encoded sequences are not double-encoded).
+  // encodeURI encodes %, which causes double-encoding when templates apply
+  // uri_escape to an accumulated query string that already contains %XX sequences.
+  engine.registerFilter('uri_escape', v => encodeURI(String(v || '')).replace(/%25/g, '%'));
   engine.registerFilter('url_decode', v => {
     try { return decodeURIComponent(String(v || '').replace(/\+/g, ' ')); }
     catch { return String(v || ''); }
@@ -708,7 +706,8 @@ function buildLiquidEngine(o, r, ref, context) {
   engine.registerFilter('inspect',    v => JSON.stringify(v));
 
   // ── Array filters ────────────────────────────────────────────────────────
-  engine.registerFilter('split',   (v,s) => String(v||'').split(s));
+  // Ruby "".split(",") returns [] (empty array); JS returns [""]. Match Ruby.
+  engine.registerFilter('split',   (v,s) => { const r = String(v||'').split(s); return r.length === 1 && r[0] === '' ? [] : r; });
   engine.registerFilter('first',   v => Array.isArray(v) ? v[0] : v);
   engine.registerFilter('last',    v => Array.isArray(v) ? v[v.length-1] : v);
   engine.registerFilter('size',    v => v ? (Array.isArray(v) ? v.length : String(v).length) : 0);
@@ -1087,6 +1086,32 @@ function rewriteRelativeUrlsInString(html, rawBase, fileDir, deployedOrigin, bas
       const isImage = /^(img|source)$/i.test(tag);
       return `<${tag}${before}src=${q}${resolve(url, true, isImage)}${q}`;
     });
+
+  // Root-relative URL values inside iframe src query strings.
+  // In dev mode, media-url.html produces root-relative paths for non-image assets
+  // (e.g. map component's geojson=/assets/posts/... or markers=/assets/...).
+  // The component fetches these at runtime; they must be full proxy URLs so the
+  // preview server can serve them. (embed/image.html handles this itself with a
+  // first_char=='/' check; embed/map.html and others do not.)
+  if (assetProxy) {
+    html = html.replace(/<iframe(\s[^>]*?\s|\s)src=("[^"]*"|'[^']*')/gi,
+      (match, before, val) => {
+        const q = val[0], full = val.slice(1, -1);
+        const qIdx = full.indexOf('?');
+        if (qIdx === -1) return match;
+        const path = full.slice(0, qIdx);
+        const params = full.slice(qIdx + 1).split('&').map(param => {
+          const eqIdx = param.indexOf('=');
+          if (eqIdx === -1) return param;
+          const k = param.slice(0, eqIdx), v = param.slice(eqIdx + 1);
+          let decoded; try { decoded = decodeURIComponent(v); } catch { decoded = v; }
+          if (decoded.startsWith('/') && !decoded.startsWith('//'))
+            return k + '=' + encodeURIComponent(assetProxy + decoded);
+          return param;
+        });
+        return `<iframe${before}src=${q}${path}?${params.join('&')}${q}`;
+      });
+  }
 
   // href= on <link> elements (stylesheets, fonts, icons)
   html = html.replace(/<link(\s[^>]*?)\bhref=("[^"]*"|'[^']*')/gi,
