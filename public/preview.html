@@ -1037,6 +1037,16 @@ function rewriteRelativeUrlsInString(html, rawBase, fileDir, deployedOrigin, bas
   function resolve(url, forAsset, isImage = false) {
     if (!url) return url;
     let u = url.trim();
+
+    // Asset URLs that point to the deployed site must be routed through the proxy
+    // so that previewing a feature branch fetches resources from that branch (via
+    // raw.githubusercontent.com/{ref}/...) rather than from the deployed site
+    // (which only reflects the published branch).
+    if (forAsset && assetProxy && deployedBase && u.startsWith(deployedBase + '/')) {
+      const repoPath = u.slice(deployedBase.length); // '/assets/posts/...'
+      return assetProxy + repoPath;
+    }
+
     if (/^([a-z][a-z0-9+.\-]*:|#|\/\/)/i.test(u)) return u; // absolute, fragment, or custom scheme (wc:, mailto:, data:, etc.)
 
     // Preserve query string — resolve path only, reattach qs unchanged
@@ -1087,12 +1097,13 @@ function rewriteRelativeUrlsInString(html, rawBase, fileDir, deployedOrigin, bas
       return `<${tag}${before}src=${q}${resolve(url, true, isImage)}${q}`;
     });
 
-  // Root-relative URL values inside iframe src query strings.
-  // In dev mode, media-url.html produces root-relative paths for non-image assets
-  // (e.g. map component's geojson=/assets/posts/... or markers=/assets/...).
-  // The component fetches these at runtime; they must be full proxy URLs so the
-  // preview server can serve them. (embed/image.html handles this itself with a
-  // first_char=='/' check; embed/map.html and others do not.)
+  // Rewrite URL values inside iframe src query strings to proxy URLs.
+  // Two cases arise depending on jekyll.environment:
+  //   dev  (localhost) — media-url.html produces root-relative paths (/assets/...)
+  //   prod (Netlify)   — media-url.html produces deployed-site absolute URLs
+  //                      (https://lab.plant-humanities.org/assets/...)
+  // In both cases the component fetches these at runtime; they must go through
+  // the proxy so branch-specific assets are fetched from the correct branch ref.
   if (assetProxy) {
     html = html.replace(/<iframe(\s[^>]*?\s|\s)src=("[^"]*"|'[^']*')/gi,
       (match, before, val) => {
@@ -1105,8 +1116,12 @@ function rewriteRelativeUrlsInString(html, rawBase, fileDir, deployedOrigin, bas
           if (eqIdx === -1) return param;
           const k = param.slice(0, eqIdx), v = param.slice(eqIdx + 1);
           let decoded; try { decoded = decodeURIComponent(v); } catch { decoded = v; }
+          // Root-relative → proxy URL
           if (decoded.startsWith('/') && !decoded.startsWith('//'))
             return k + '=' + encodeURIComponent(assetProxy + decoded);
+          // Deployed-site absolute URL → proxy URL (branch-safe)
+          if (deployedBase && decoded.startsWith(deployedBase + '/'))
+            return k + '=' + encodeURIComponent(assetProxy + decoded.slice(deployedBase.length));
           return param;
         });
         return `<iframe${before}src=${q}${path}?${params.join('&')}${q}`;
