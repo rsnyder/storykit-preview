@@ -34,7 +34,7 @@ export async function handler(event) {
       statusCode: ghRes.status,
       headers: {
         'Content-Type': 'application/json',
-        'Cache-Control': 'public, max-age=300',
+        'Cache-Control': 'no-store',
       },
       body,
     };

@@ -62,7 +62,7 @@ app.get('/api/gh/:owner/:repo/contents/*', async (req, res) => {
 
     res.status(ghRes.status)
        .set('Content-Type', 'application/json')
-       .set('Cache-Control', 'public, max-age=300')
+       .set('Cache-Control', 'no-store')
        .send(body);
   } catch (err) {
     console.error('GitHub proxy error:', err.message);
