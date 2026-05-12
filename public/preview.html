@@ -1028,6 +1028,18 @@ function rewriteRelativeUrlsInString(html, rawBase, fileDir, deployedOrigin, bas
     ? `${location.origin}/api/raw/${rawMatch[1]}/${rawMatch[2]}/${rawMatch[3]}`
     : null;
 
+  // Extract the embedded source URL from a Cloudinary "fetch" URL.
+  // Pattern: https://res.cloudinary.com/{cloud}/{type}/fetch/{opts}/{source_url}
+  // Returns the source URL string, or null if not a Cloudinary fetch URL.
+  // Used to bypass Cloudinary CDN during preview so assets on unreleased
+  // branches are fetched directly from the raw proxy instead of from the
+  // deployed site (which Cloudinary would fetch and which lacks branch content).
+  function cloudinarySource(u) {
+    if (!u.startsWith('https://res.cloudinary.com/')) return null;
+    const idx = u.indexOf('/http', 27); // find embedded http(s):// source
+    return idx !== -1 ? u.slice(idx + 1) : null;
+  }
+
   /**
    * Resolve a single URL to an absolute form.
    * @param {string}  url       — the URL to resolve
@@ -1038,13 +1050,18 @@ function rewriteRelativeUrlsInString(html, rawBase, fileDir, deployedOrigin, bas
     if (!url) return url;
     let u = url.trim();
 
-    // Asset URLs that point to the deployed site must be routed through the proxy
-    // so that previewing a feature branch fetches resources from that branch (via
-    // raw.githubusercontent.com/{ref}/...) rather than from the deployed site
-    // (which only reflects the published branch).
-    if (forAsset && assetProxy && deployedBase && u.startsWith(deployedBase + '/')) {
-      const repoPath = u.slice(deployedBase.length); // '/assets/posts/...'
-      return assetProxy + repoPath;
+    // Asset URLs that point to the deployed site (or wrapped in Cloudinary fetch)
+    // must be routed through the proxy so that previewing a feature branch fetches
+    // resources from that branch rather than from the deployed site.
+    if (forAsset && assetProxy) {
+      // Unwrap Cloudinary fetch URLs — Cloudinary fetches from the deployed site
+      // which doesn't have unreleased branch content.
+      const cloudSrc = cloudinarySource(u);
+      const effective = cloudSrc || u;
+      if (deployedBase && effective.startsWith(deployedBase + '/')) {
+        return assetProxy + effective.slice(deployedBase.length);
+      }
+      if (cloudSrc) return cloudSrc; // Cloudinary wrapping a non-deploy URL — use source directly
     }
 
     if (/^([a-z][a-z0-9+.\-]*:|#|\/\/)/i.test(u)) return u; // absolute, fragment, or custom scheme (wc:, mailto:, data:, etc.)
@@ -1119,6 +1136,13 @@ function rewriteRelativeUrlsInString(html, rawBase, fileDir, deployedOrigin, bas
           // Root-relative → proxy URL
           if (decoded.startsWith('/') && !decoded.startsWith('//'))
             return k + '=' + encodeURIComponent(assetProxy + decoded);
+          // Cloudinary fetch URL → unwrap, then proxy the source URL
+          const cloudSrc = cloudinarySource(decoded);
+          if (cloudSrc) {
+            if (deployedBase && cloudSrc.startsWith(deployedBase + '/'))
+              return k + '=' + encodeURIComponent(assetProxy + cloudSrc.slice(deployedBase.length));
+            return k + '=' + encodeURIComponent(cloudSrc);
+          }
           // Deployed-site absolute URL → proxy URL (branch-safe)
           if (deployedBase && decoded.startsWith(deployedBase + '/'))
             return k + '=' + encodeURIComponent(assetProxy + decoded.slice(deployedBase.length));
