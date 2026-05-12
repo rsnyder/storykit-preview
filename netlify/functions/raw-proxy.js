@@ -45,29 +45,45 @@ export async function handler(event) {
 
   const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${encodeURIComponent(ref)}/${filepath}`;
 
-  const headers = {};
+  const ghHeaders = {};
   const token = process.env.GITHUB_TOKEN;
-  if (token) headers['Authorization'] = `token ${token}`;
+  if (token) ghHeaders['Authorization'] = `token ${token}`;
+
+  const ext      = path.extname(filepath).slice(1).toLowerCase();
+  const mimeType = MIME_TYPES[ext] || 'application/octet-stream';
+  const corsHeaders = {
+    'Content-Type': mimeType,
+    'Access-Control-Allow-Origin': '*',
+    'Cache-Control': 'public, max-age=300',
+  };
 
   try {
-    const ghRes = await fetch(rawUrl, { headers });
-    if (!ghRes.ok) return { statusCode: ghRes.status, body: '' };
-
-    const ext      = path.extname(filepath).slice(1).toLowerCase();
-    const mimeType = MIME_TYPES[ext] || 'application/octet-stream';
-    const buf      = Buffer.from(await ghRes.arrayBuffer());
-
-    return {
-      statusCode: 200,
-      headers: {
-        'Content-Type': mimeType,
-        'Access-Control-Allow-Origin': '*',
-        'Cache-Control': 'public, max-age=300',
-      },
-      body: buf.toString('base64'),
-      isBase64Encoded: true,
-    };
-  } catch (err) {
+    const ghRes = await fetch(rawUrl, { headers: ghHeaders });
+    if (ghRes.ok) {
+      const buf = Buffer.from(await ghRes.arrayBuffer());
+      return { statusCode: 200, headers: corsHeaders, body: buf.toString('base64'), isBase64Encoded: true };
+    }
+    if (ghRes.status !== 404) return { statusCode: ghRes.status, body: '' };
+    // 404 from raw — fall through to GitHub Pages fallback
+  } catch {
     return { statusCode: 502, body: 'Upstream fetch failed' };
   }
+
+  // Fallback chain for compiled assets (jekyll-theme-chirpy.css, etc.):
+  //   1. The repo's GitHub Pages site — works for repos with a deployed site.
+  //   2. The official Chirpy demo — universal fallback for Chirpy theme CSS.
+  async function tryUrl(url) {
+    try {
+      const r = await fetch(url);
+      if (!r.ok) return null;
+      return Buffer.from(await r.arrayBuffer());
+    } catch { return null; }
+  }
+
+  const isUserSite  = repo.toLowerCase() === `${owner.toLowerCase()}.github.io`;
+  const ghPagesBase = isUserSite ? `https://${owner}.github.io` : `https://${owner}.github.io/${repo}`;
+  const buf = await tryUrl(`${ghPagesBase}/${filepath}`)
+           ?? await tryUrl(`https://cotes2000.github.io/chirpy-demo/${filepath}`);
+  if (buf) return { statusCode: 200, headers: corsHeaders, body: buf.toString('base64'), isBase64Encoded: true };
+  return { statusCode: 404, body: '' };
 }

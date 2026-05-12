@@ -81,13 +81,15 @@ app.get('/api/gh/:owner/:repo/contents/*', async (req, res) => {
 // In GitHub mode: fetches from raw.githubusercontent.com.
 
 app.get('/api/raw/:owner/:repo/:ref/*', async (req, res) => {
-  const filepath = req.params[0];
-  const ext      = path.extname(filepath).slice(1);
+  const filepath      = req.params[0];
+  const { owner, repo, ref } = req.params;
+  const ext           = path.extname(filepath).slice(1);
 
   res.set('Access-Control-Allow-Origin', '*');
   res.set('Cache-Control', 'public, max-age=300');
   if (ext) res.type(ext);
 
+  // ── Local filesystem mode ──────────────────────────────────────────────────
   if (LOCAL_REPO_PATH) {
     const resolved = path.resolve(LOCAL_REPO_PATH, filepath);
     if (!resolved.startsWith(LOCAL_REPO_PATH + path.sep) && resolved !== LOCAL_REPO_PATH) {
@@ -97,27 +99,56 @@ app.get('/api/raw/:owner/:repo/:ref/*', async (req, res) => {
       const buf = await fs.readFile(resolved);
       return res.send(buf);
     } catch (err) {
-      return res.status(err.code === 'ENOENT' ? 404 : 500).end();
+      if (err.code !== 'ENOENT') return res.status(500).end();
+      // File not in local repo (e.g. compiled jekyll-theme-chirpy.css) —
+      // fall through to GitHub Pages fallback below.
+    }
+  } else {
+    // ── GitHub raw mode ──────────────────────────────────────────────────────
+    if (!/^[\w.\-]+$/.test(owner) || !/^[\w.\-]+$/.test(repo)) {
+      return res.status(400).end();
+    }
+    const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${encodeURIComponent(ref)}/${filepath}`;
+    try {
+      const headers = {};
+      if (GITHUB_TOKEN) headers['Authorization'] = `token ${GITHUB_TOKEN}`;
+      const ghRes = await fetch(rawUrl, { headers });
+      if (ghRes.ok) {
+        const buf = Buffer.from(await ghRes.arrayBuffer());
+        return res.send(buf);
+      }
+      if (ghRes.status !== 404) return res.status(ghRes.status).end();
+      // 404 from raw (e.g. compiled CSS not in source) — fall through to GitHub Pages.
+    } catch (err) {
+      console.error('Raw proxy error:', err.message);
+      return res.status(502).end();
     }
   }
 
-  const { owner, repo, ref } = req.params;
-  if (!/^[\w.\-]+$/.test(owner) || !/^[\w.\-]+$/.test(repo)) {
-    return res.status(400).end();
+  // ── Fallback chain for compiled assets ────────────────────────────────────
+  // Compiled assets like jekyll-theme-chirpy.css are not in the source tree
+  // (only an SCSS placeholder is committed). Try two remote sources in order:
+  //   1. The repo's GitHub Pages site at {owner}.github.io/{repo}/ — works for
+  //      repos with a deployed site (follows redirects to custom domains too).
+  //   2. The official Chirpy demo — always has the compiled Chirpy theme CSS.
+
+  async function tryUrl(url) {
+    try {
+      const r = await fetch(url);
+      if (!r.ok) return null;
+      return Buffer.from(await r.arrayBuffer());
+    } catch { return null; }
   }
 
-  const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${encodeURIComponent(ref)}/${filepath}`;
-  try {
-    const headers = {};
-    if (GITHUB_TOKEN) headers['Authorization'] = `token ${GITHUB_TOKEN}`;
-    const ghRes = await fetch(rawUrl, { headers });
-    if (!ghRes.ok) return res.status(ghRes.status).end();
-    const buf = Buffer.from(await ghRes.arrayBuffer());
-    res.send(buf);
-  } catch (err) {
-    console.error('Raw proxy error:', err.message);
-    res.status(502).end();
+  if (/^[\w.\-]+$/.test(owner) && /^[\w.\-]+$/.test(repo)) {
+    const isUserSite  = repo.toLowerCase() === `${owner.toLowerCase()}.github.io`;
+    const ghPagesBase = isUserSite ? `https://${owner}.github.io` : `https://${owner}.github.io/${repo}`;
+    const buf = await tryUrl(`${ghPagesBase}/${filepath}`)
+             ?? await tryUrl(`https://cotes2020.github.io/chirpy-demo/${filepath}`);
+    if (buf) return res.send(buf);
   }
+
+  return res.status(404).end();
 });
 
 // ── Local file helper ────────────────────────────────────────────────────────

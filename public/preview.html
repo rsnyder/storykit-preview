@@ -445,8 +445,43 @@ async function fetchFile(o, r, ref, repoPath) {
 async function loadSiteConfig(o, r, ref) {
   try {
     const raw = await fetchRepoFile(o, r, ref, '_config.yml');
-    return jsyaml.load(raw) || {};
-  } catch { return {}; }
+    let parsed;
+    try {
+      parsed = jsyaml.load(raw);
+    } catch (yamlErr) {
+      // js-yaml v4 rejects duplicate YAML keys; Ruby/Jekyll silently uses the last value.
+      // Fall back to a simple line-by-line extractor for the scalar fields we need.
+      if (String(yamlErr.message).includes('duplicated mapping key')) {
+        parsed = extractSimpleConfigFields(raw);
+      } else {
+        throw yamlErr;
+      }
+    }
+    return parsed || {};
+  } catch (e) {
+    console.warn('_config.yml load failed:', e.message);
+    return {};
+  }
+}
+
+/**
+ * Extract top-level scalar fields from a YAML string that js-yaml rejects
+ * (e.g. due to duplicate keys). Returns the last occurrence of each key,
+ * matching Ruby YAML / Jekyll behavior.
+ */
+function extractSimpleConfigFields(text) {
+  const result = {};
+  for (const line of text.split('\n')) {
+    const m = line.match(/^([a-zA-Z_][a-zA-Z0-9_.-]*)\s*:\s*(.+)/);
+    if (!m) continue;
+    let val = m[2].trim();
+    if ((val.startsWith('"') && val.endsWith('"')) ||
+        (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1);
+    }
+    result[m[1]] = val;
+  }
+  return result;
 }
 
 /**
@@ -1152,6 +1187,7 @@ async function render() {
   const isLocalDev = /^http:\/\/localhost(:\d+)?$/.test(location.origin);
   const now = new Date();
   const siteCtx = {
+    theme: 'jekyll-theme-chirpy',    // default; overridden by _config.yml if present
     ...siteConfig,
     url:     isLocalDev ? `${location.origin}/api/raw/${o}/${r}/${ref}` : deployedOrigin,
     baseurl: isLocalDev ? '' : baseurl,
@@ -1274,7 +1310,26 @@ async function render() {
     html = html.replace(/<\/head>/i, faLink + '\n</head>');
   }
 
-  // ── 10. Mark body as preview context ────────────────────────────────────────
+  // ── 10. Prepare html/body for preview context ───────────────────────────────
+  // Chirpy defines CSS variables (--blockquote-border-color, etc.) under
+  // html[data-mode="light"/"dark"]. Without the attribute the selectors never
+  // match and all variables are undefined. Chirpy's JS sets this from
+  // localStorage, but it hasn't run yet when srcdoc first paints.
+  html = html.replace(/<html(\s[^>]*)?>/i, (match, attrs) => {
+    let a = attrs || '';
+    // Chirpy renders data-mode="{{ site.theme_mode }}" which produces data-mode=""
+    // when site.theme_mode is unset. Replace empty/absent with "light".
+    if (!/\bdata-mode="(light|dark)"/i.test(a)) {
+      a = a.replace(/\s*\bdata-mode="[^"]*"/, '');
+      a += ' data-mode="light"';
+    }
+    if (!/\bdata-bs-theme="(light|dark)"/i.test(a)) {
+      a = a.replace(/\s*\bdata-bs-theme="[^"]*"/, '');
+      a += ' data-bs-theme="light"';
+    }
+    return `<html${a}>`;
+  });
+
   // Add 'preview' class to <body> so authors can target preview-specific CSS.
   html = html.replace(/<body(\s[^>]*)?>/i, (match, attrs) => {
     const a = attrs || '';
