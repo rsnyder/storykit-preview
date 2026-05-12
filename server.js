@@ -97,7 +97,7 @@ app.get('/api/raw/:owner/:repo/:ref/*', async (req, res) => {
     }
     try {
       const buf = await fs.readFile(resolved);
-      return res.send(buf);
+      return res.send(injectPostMessageFix(buf, ext, owner, repo, ref));
     } catch (err) {
       if (err.code !== 'ENOENT') return res.status(500).end();
       // File not in local repo (e.g. compiled jekyll-theme-chirpy.css) —
@@ -115,7 +115,7 @@ app.get('/api/raw/:owner/:repo/:ref/*', async (req, res) => {
       const ghRes = await fetch(rawUrl, { headers });
       if (ghRes.ok) {
         const buf = Buffer.from(await ghRes.arrayBuffer());
-        return res.send(buf);
+        return res.send(injectPostMessageFix(buf, ext, owner, repo, ref));
       }
       if (ghRes.status !== 404) return res.status(ghRes.status).end();
       // 404 from raw (e.g. compiled CSS not in source) — fall through to GitHub Pages.
@@ -145,11 +145,48 @@ app.get('/api/raw/:owner/:repo/:ref/*', async (req, res) => {
     const ghPagesBase = isUserSite ? `https://${owner}.github.io` : `https://${owner}.github.io/${repo}`;
     const buf = await tryUrl(`${ghPagesBase}/${filepath}`)
              ?? await tryUrl(`https://cotes2020.github.io/chirpy-demo/${filepath}`);
-    if (buf) return res.send(buf);
+    if (buf) return res.send(injectPostMessageFix(buf, ext, owner, repo, ref));
   }
 
   return res.status(404).end();
 });
+
+// ── HTML injection helper ─────────────────────────────────────────────────────
+// When serving HTML component files through /api/raw/, inject a script that patches
+// window.parent.postMessage to strip the proxy prefix from any src/url fields before
+// the message reaches storykit.js. Component iframes (image-compare.html, youtube.html,
+// etc.) construct their showDialog URL from window.location.pathname, which includes
+// the /api/raw/{o}/{r}/{ref} prefix. storykit.js's showDialog validation rejects any
+// src that doesn't start with /assets/, so we strip the prefix at the sender.
+
+function injectPostMessageFix(buf, ext, owner, repo, ref) {
+  if (ext !== 'html') return buf;
+  const prefix = `/api/raw/${owner}/${repo}/${ref}`;
+  const script =
+    `<script>` +
+    `(function(){` +
+      `var p=${JSON.stringify(prefix)},pp=window.parent&&window.parent.postMessage;` +
+      `if(!pp||pp.__ppx)return;` +
+      `var orig=pp.bind(window.parent);` +
+      `function fix(s){return typeof s==='string'&&s.indexOf(p)===0?window.location.origin+s:s;}` +
+      `window.parent.postMessage=function(d,t){` +
+        `if(typeof d==='string')d=fix(d);` +
+        `else if(d&&typeof d==='object'){d=Object.assign({},d);` +
+          `['src','href','url','path'].forEach(function(k){d[k]=fix(d[k]);});` +
+        `}` +
+        `return orig(d,t);` +
+      `};` +
+      `window.parent.postMessage.__ppx=1;` +
+    `})()` +
+    `</script>`;
+  let html = buf.toString('utf8');
+  if (/<head>/i.test(html)) {
+    html = html.replace(/<head>/i, '<head>' + script);
+  } else {
+    html = script + html;
+  }
+  return Buffer.from(html);
+}
 
 // ── Local file helper ────────────────────────────────────────────────────────
 

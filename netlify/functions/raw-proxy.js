@@ -7,6 +7,13 @@
 // headers for JS/CSS files, so assets loaded as ES modules from the srcdoc iframe
 // would be blocked. This proxy fetches from raw.githubusercontent.com and adds the
 // required CORS headers.
+//
+// For HTML files, a small script is injected that patches window.parent.postMessage
+// to strip the /api/raw/{o}/{r}/{ref} prefix from any src/url fields before the
+// message reaches storykit.js. Component iframes (image-compare.html, youtube.html,
+// etc.) construct their showDialog URL from window.location.pathname which includes
+// the proxy prefix; storykit.js's showDialog validation rejects anything that doesn't
+// start with /assets/, so we strip the prefix at the sender.
 
 import path from 'path';
 
@@ -57,10 +64,41 @@ export async function handler(event) {
     'Cache-Control': 'public, max-age=300',
   };
 
+  // Inject a postMessage-fix script into HTML responses. Component iframes served
+  // through the proxy have URLs like /api/raw/{o}/{r}/{ref}/assets/components/foo.html.
+  // Their click handlers send postMessage with that full path as the dialog src, but
+  // storykit.js's showDialog only accepts paths starting with /assets/. The injected
+  // script patches window.parent.postMessage before the component's own JS runs,
+  // stripping the proxy prefix so showDialog receives the canonical path.
+  function injectPostMessageFix(buf) {
+    if (ext !== 'html') return buf;
+    const prefix = `/api/raw/${owner}/${repo}/${ref}`;
+    const script =
+      `<script>` +
+      `(function(){` +
+        `var p=${JSON.stringify(prefix)},pp=window.parent&&window.parent.postMessage;` +
+        `if(!pp||pp.__ppx)return;` +
+        `var orig=pp.bind(window.parent);` +
+        `function fix(s){return typeof s==='string'&&s.indexOf(p)===0?window.location.origin+s:s;}` +
+        `window.parent.postMessage=function(d,t){` +
+          `if(typeof d==='string')d=fix(d);` +
+          `else if(d&&typeof d==='object'){d=Object.assign({},d);` +
+            `['src','href','url','path'].forEach(function(k){d[k]=fix(d[k]);});` +
+          `}` +
+          `return orig(d,t);` +
+        `};` +
+        `window.parent.postMessage.__ppx=1;` +
+      `})()` +
+      `</script>`;
+    let html = buf.toString('utf8');
+    html = /<head>/i.test(html) ? html.replace(/<head>/i, '<head>' + script) : script + html;
+    return Buffer.from(html);
+  }
+
   try {
     const ghRes = await fetch(rawUrl, { headers: ghHeaders });
     if (ghRes.ok) {
-      const buf = Buffer.from(await ghRes.arrayBuffer());
+      const buf = injectPostMessageFix(Buffer.from(await ghRes.arrayBuffer()));
       return { statusCode: 200, headers: corsHeaders, body: buf.toString('base64'), isBase64Encoded: true };
     }
     if (ghRes.status !== 404) return { statusCode: ghRes.status, body: '' };
@@ -82,8 +120,10 @@ export async function handler(event) {
 
   const isUserSite  = repo.toLowerCase() === `${owner.toLowerCase()}.github.io`;
   const ghPagesBase = isUserSite ? `https://${owner}.github.io` : `https://${owner}.github.io/${repo}`;
-  const buf = await tryUrl(`${ghPagesBase}/${filepath}`)
-           ?? await tryUrl(`https://cotes2000.github.io/chirpy-demo/${filepath}`);
+  const buf = injectPostMessageFix(
+    await tryUrl(`${ghPagesBase}/${filepath}`) ??
+    await tryUrl(`https://cotes2020.github.io/chirpy-demo/${filepath}`)
+  );
   if (buf) return { statusCode: 200, headers: corsHeaders, body: buf.toString('base64'), isBase64Encoded: true };
   return { statusCode: 404, body: '' };
 }
