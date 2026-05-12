@@ -1142,14 +1142,22 @@ async function render() {
   // ── 4. Build Liquid context ──────────────────────────────────────────────
   // Mirrors the context Jekyll provides at build time.
   // Note: site.posts/pages/tags/categories are empty — we only build one page.
+  //
+  // Local dev mode (localhost): mirrors Jekyll's development environment.
+  //   · jekyll.environment = 'development' suppresses Cloudinary CDN in media-url.html
+  //   · site.url = asset proxy base so embed/image.html's root-relative → absolute
+  //     conversion produces URLs the local server can serve (not the deployed site)
+  //   · site.baseurl = '' since the raw proxy serves repo-relative paths without prefix
+  //   deployedOrigin and baseurl remain unchanged for rewriteRelativeUrlsInString.
+  const isLocalDev = /^http:\/\/localhost(:\d+)?$/.test(location.origin);
   const now = new Date();
   const siteCtx = {
     ...siteConfig,
-    url: deployedOrigin,
-    baseurl,
-    time: now.toISOString(),
+    url:     isLocalDev ? `${location.origin}/api/raw/${o}/${r}/${ref}` : deployedOrigin,
+    baseurl: isLocalDev ? '' : baseurl,
+    time:    now.toISOString(),
     posts: [], pages: [], tags: [], categories: [],
-    data: siteData,
+    data:   siteData,
   };
   const pageCtx = {
     ...pageFM,
@@ -1159,7 +1167,8 @@ async function render() {
     content: '',  // populated before each layout layer is applied
     excerpt: '',
   };
-  const context = { site: siteCtx, page: pageCtx };
+  const jekyllCtx = { environment: isLocalDev ? 'development' : 'production' };
+  const context = { site: siteCtx, page: pageCtx, jekyll: jekyllCtx };
   const engine  = buildLiquidEngine(o, r, ref, context);
 
   // ── 5. Render post body: Liquid → Markdown ───────────────────────────────
