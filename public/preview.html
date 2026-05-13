@@ -1303,19 +1303,24 @@ async function render() {
   // Mirrors the context Jekyll provides at build time.
   // Note: site.posts/pages/tags/categories are empty — we only build one page.
   //
-  // Local dev mode (localhost): mirrors Jekyll's development environment.
-  //   · jekyll.environment = 'development' suppresses Cloudinary CDN in media-url.html
-  //   · site.url = asset proxy base so embed/image.html's root-relative → absolute
-  //     conversion produces URLs the local server can serve (not the deployed site)
-  //   · site.baseurl = '' since the raw proxy serves repo-relative paths without prefix
+  // Preview always uses development-mode context regardless of whether it is
+  // running on localhost or Netlify:
+  //   · jekyll.environment = 'development' suppresses Cloudinary CDN in
+  //     media-url.html and component templates (Cloudinary can't access
+  //     localhost URLs, and on Netlify the source images may be too large
+  //     for Cloudinary's fetch API)
+  //   · site.url = asset proxy base so media-url.html generates proxy URLs
+  //     directly — avoids the need for the iframe QS rewriter to re-encode
+  //     deployed-site URLs as percent-encoded proxy URLs
+  //   · site.baseurl = '' since the raw proxy serves repo-relative paths
+  //     without any baseurl prefix
   //   deployedOrigin and baseurl remain unchanged for rewriteRelativeUrlsInString.
-  const isLocalDev = /^http:\/\/localhost(:\d+)?$/.test(location.origin);
   const now = new Date();
   const siteCtx = {
     theme: 'jekyll-theme-chirpy',    // default; overridden by _config.yml if present
     ...siteConfig,
-    url:     isLocalDev ? `${location.origin}/api/raw/${o}/${r}/${ref}` : deployedOrigin,
-    baseurl: isLocalDev ? '' : baseurl,
+    url:     `${location.origin}/api/raw/${o}/${r}/${ref}`,
+    baseurl: '',
     time:    now.toISOString(),
     posts: [], pages: [], tags: [], categories: [],
     data:   siteData,
@@ -1328,7 +1333,7 @@ async function render() {
     content: '',  // populated before each layout layer is applied
     excerpt: '',
   };
-  const jekyllCtx = { environment: isLocalDev ? 'development' : 'production' };
+  const jekyllCtx = { environment: 'development' };
   const context = { site: siteCtx, page: pageCtx, jekyll: jekyllCtx };
   const engine  = buildLiquidEngine(o, r, ref, context);
 
