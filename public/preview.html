@@ -1196,17 +1196,17 @@ function rewriteRelativeUrlsInString(html, rawBase, fileDir, deployedOrigin, bas
           let decoded; try { decoded = decodeURIComponent(v); } catch { decoded = v; }
           // Root-relative → proxy URL
           if (decoded.startsWith('/') && !decoded.startsWith('//'))
-            return k + '=' + encodeURIComponent(assetProxy + decoded);
+            return k + '=' + (assetProxy + decoded);
           // Cloudinary fetch URL → unwrap, then proxy the source URL
           const cloudSrc = cloudinarySource(decoded);
           if (cloudSrc) {
             if (deployedBase && cloudSrc.startsWith(deployedBase + '/'))
-              return k + '=' + encodeURIComponent(assetProxy + cloudSrc.slice(deployedBase.length));
-            return k + '=' + encodeURIComponent(cloudSrc);
+              return k + '=' + (assetProxy + cloudSrc.slice(deployedBase.length));
+            return k + '=' + cloudSrc;
           }
           // Deployed-site absolute URL → proxy URL (branch-safe)
           if (deployedBase && decoded.startsWith(deployedBase + '/'))
-            return k + '=' + encodeURIComponent(assetProxy + decoded.slice(deployedBase.length));
+            return k + '=' + (assetProxy + decoded.slice(deployedBase.length));
           return param;
         });
         return `<iframe${before}src=${q}${path}?${params.join('&')}${q}`;
