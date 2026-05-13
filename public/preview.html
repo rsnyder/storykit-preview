@@ -140,6 +140,57 @@
       opacity: .8;
       color: #e3b341;
     }
+
+    /* Audit panel — fixed at bottom, overlays the iframe */
+    #__audit-panel {
+      display: none;
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      z-index: 99998;
+      max-height: 42vh;
+      background: rgba(13,17,23,0.97);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border-top: 1px solid rgba(255,255,255,0.1);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      color: #c9d1d9;
+      overflow: hidden;
+      flex-direction: column;
+    }
+    #__audit-panel.open { display: flex; }
+    #__audit-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 14px;
+      background: rgba(22,27,34,0.95);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      flex-shrink: 0;
+    }
+    #__audit-header .audit-title { font-weight: 700; letter-spacing: .04em; font-size: 11px; color: #58a6ff; }
+    #__audit-header .audit-summary { flex: 1; opacity: .8; }
+    #__audit-close { background: none; border: none; color: #8b949e; font-size: 14px; cursor: pointer; padding: 0 4px; line-height: 1; }
+    #__audit-close:hover { color: #c9d1d9; }
+    #__audit-body { overflow-y: auto; flex: 1; padding: 4px 0; }
+    .audit-row {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      padding: 4px 14px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      line-height: 1.5;
+    }
+    .audit-row:last-child { border-bottom: none; }
+    .audit-icon { flex-shrink: 0; font-size: 11px; }
+    .audit-icon.err  { color: #f85149; }
+    .audit-icon.warn { color: #e3b341; }
+    .audit-icon.info { color: #58a6ff; }
+    .audit-loc  { flex-shrink: 0; color: #8b949e; min-width: 52px; }
+    .audit-cat  { flex-shrink: 0; color: #bc8cff; min-width: 88px; }
+    .audit-msg  { flex: 1; }
+    .audit-fix  { color: #8b949e; font-style: italic; }
+    .audit-none { padding: 16px 14px; color: #8b949e; }
   </style>
 
   <!-- ── Client-side libraries ──────────────────────────────────────────────
@@ -160,6 +211,17 @@
   <span class="pb-file"  id="pb-file">—</span>
   <span class="pb-status" id="pb-status">Loading…</span>
   <button id="pb-reload">⟳ Reload</button>
+  <button id="pb-audit">✓ Audit</button>
+</div>
+
+<!-- ── Audit panel ─────────────────────────────────────────────────────────── -->
+<div id="__audit-panel">
+  <div id="__audit-header">
+    <span class="audit-title">AUDIT</span>
+    <span id="__audit-summary" class="audit-summary"></span>
+    <button id="__audit-close" title="Close">✕</button>
+  </div>
+  <div id="__audit-body"></div>
 </div>
 
 <!-- ── Preview iframe ───────────────────────────────────────────────────────
@@ -619,6 +681,32 @@ function fixWcImageUrls(html) {
 
 
 // ════════════════════════════════════════════════════════════════════════════
+//  INCLUDE ARGUMENT PARSER
+//  Module-level so both buildLiquidEngine and the audit engine can use it.
+// ════════════════════════════════════════════════════════════════════════════
+
+function parseIncludeArgs(argsStr) {
+  const s = (argsStr || '').trim();
+  if (!s) return { name: null, params: {} };
+  const tokens = [];
+  const re = /([\w./:-]+)=(?:"([^"]*)"|'([^']*)'|([^\s]*))|"([^"]*)"|'([^']*)'|([^\s=]+)/g;
+  let m;
+  while ((m = re.exec(s)) !== null) {
+    if (m[1] !== undefined) {
+      tokens.push({ type: 'kv', key: m[1], val: m[2] ?? m[3] ?? m[4] ?? '' });
+    } else {
+      tokens.push({ type: 'bare', val: m[5] ?? m[6] ?? m[7] ?? '' });
+    }
+  }
+  if (!tokens.length) return { name: null, params: {} };
+  const nameToken = tokens.find(t => t.type === 'bare');
+  const params = {};
+  for (const t of tokens) { if (t.type === 'kv') params[t.key] = t.val; }
+  return { name: nameToken?.val ?? null, params };
+}
+
+
+// ════════════════════════════════════════════════════════════════════════════
 //  LIQUID ENGINE
 //  LiquidJS is a JavaScript port of the Liquid template engine but lacks many
 //  Jekyll/Ruby-specific filters and tags. We register them all here.
@@ -736,33 +824,6 @@ function buildLiquidEngine(o, r, ref, context) {
   //   · evaluates parameter values that are Liquid variable refs (include.src etc.)
   //   · collapses multi-line HTML tags in output (prevents markdown-it mangling)
   //   · renders .md include files through markdown-it
-
-  /**
-   * Parse Jekyll include arguments string into {name, params}.
-   * Handles all parameter forms:
-   *   key="value with spaces"  key='value'  key=bareword  key=variable.ref
-   * The filename is the first non-key=value token.
-   */
-  function parseIncludeArgs(argsStr) {
-    const s = (argsStr || '').trim();
-    if (!s) return { name: null, params: {} };
-    const tokens = [];
-    // Regex matches key=value pairs (with quoted or bare values) and bare tokens
-    const re = /([\w./:-]+)=(?:"([^"]*)"|'([^']*)'|([^\s]*))|"([^"]*)"|'([^']*)'|([^\s=]+)/g;
-    let m;
-    while ((m = re.exec(s)) !== null) {
-      if (m[1] !== undefined) {
-        tokens.push({ type: 'kv', key: m[1], val: m[2] ?? m[3] ?? m[4] ?? '' });
-      } else {
-        tokens.push({ type: 'bare', val: m[5] ?? m[6] ?? m[7] ?? '' });
-      }
-    }
-    if (!tokens.length) return { name: null, params: {} };
-    const nameToken = tokens.find(t => t.type === 'bare');
-    const params = {};
-    for (const t of tokens) { if (t.type === 'kv') params[t.key] = t.val; }
-    return { name: nameToken?.val ?? null, params };
-  }
 
   /**
    * Evaluate a parameter value that might be a Liquid variable reference.
@@ -1409,12 +1470,294 @@ async function render() {
 
 
 // ════════════════════════════════════════════════════════════════════════════
+//  AUDIT ENGINE
+//  Client-side rule engine that analyses the raw markdown source and surfaces
+//  common authoring issues (frontmatter, headings, images, includes, links,
+//  footnotes, content) in a bottom-anchored panel.
+// ════════════════════════════════════════════════════════════════════════════
+
+const INCLUDE_REGISTRY = {
+  'embed/image.html':         { required: ['src'],           optional: ['caption','aspect','attribution','class','cover','id','manifest','region','rotate','seq','width'] },
+  'embed/youtube.html':       { required: ['vid'],           optional: ['caption','autoplay','start','end','aspect','class','id'] },
+  'embed/map.html':           { required: [],                optional: ['center','zoom','basemap','caption','geojson','markers','aspect','allmaps','class','id','src','width'] },
+  'embed/image-compare.html': { required: ['before','after'],optional: ['caption','aspect','id','width','height'] },
+  'embed/iframe.html':        { required: ['src'],           optional: ['caption','aspect','class','id','width','height'] },
+  'embed/vis-network.html':   { required: ['src'],           optional: ['caption','aspect','id'] },
+  'cite-this.html':           { required: [], optional: [] },
+  'col2-toggle.html':         { required: [], optional: [] },
+  'pdf-download.html':        { required: [], optional: [] },
+  'footer.html':              { required: [], optional: [] },
+};
+
+const KNOWN_FM_KEYS = new Set([
+  'title','description','author','date','categories','tags','published','featured',
+  'media_subpath','image','permalink','storykit','layout','math','mermaid','pin',
+  'toc','comments','render_with_liquid','draft','last_modified_at',
+]);
+
+function runAudit(source) {
+  const issues = [];
+  const lines  = source.split(/\r?\n/);
+
+  function issue(severity, line, category, msg, fix) {
+    issues.push({ severity, line, category, msg, fix: fix || '' });
+  }
+
+  // ── Frontmatter ────────────────────────────────────────────────────────
+  const { data: fm, body } = parseFrontMatter(source);
+  let fmEndLine = 0;
+  if (source.trimStart().startsWith('---')) {
+    for (let i = 1; i < lines.length; i++) {
+      if (lines[i].trim() === '---') { fmEndLine = i + 1; break; }
+    }
+  }
+
+  if (!fm.title)       issue('err',  1, 'Frontmatter', 'Missing required field: title');
+  if (!fm.date)        issue('err',  1, 'Frontmatter', 'Missing required field: date');
+  if (!fm.description) issue('warn', 1, 'Frontmatter', 'Missing description (used in meta tags and social previews)');
+  if (!fm.author)      issue('info', 1, 'Frontmatter', 'No author specified — site default will be used');
+
+  if (fm.date) {
+    const dateStr = String(fm.date).trim();
+    const dateObj = fm.date instanceof Date ? fm.date : new Date(dateStr);
+    if (isNaN(dateObj.getTime())) {
+      issue('err', 1, 'Frontmatter', `Invalid date: "${dateStr}"`, 'Use format YYYY-MM-DD or YYYY-MM-DD HH:MM:SS ±HHMM');
+    }
+  }
+
+  if (fm.media_subpath && !String(fm.media_subpath).startsWith('/')) {
+    issue('warn', 1, 'Frontmatter', `media_subpath "${fm.media_subpath}" should start with /`, 'Prefix with /');
+  }
+
+  if (fm.image) {
+    const imgPath = typeof fm.image === 'object' ? (fm.image.path || '') : String(fm.image);
+    if (!imgPath) issue('warn', 1, 'Frontmatter', 'image.path is empty');
+  }
+
+  if (fm.published === false) {
+    issue('info', 1, 'Frontmatter', 'Post is marked published: false — it will not appear on the live site');
+  }
+
+  if (fm.categories !== undefined && !Array.isArray(fm.categories) && typeof fm.categories !== 'string') {
+    issue('warn', 1, 'Frontmatter', 'categories should be a list or string');
+  }
+  if (fm.tags !== undefined && !Array.isArray(fm.tags) && typeof fm.tags !== 'string') {
+    issue('warn', 1, 'Frontmatter', 'tags should be a list or string');
+  }
+
+  for (const k of Object.keys(fm)) {
+    if (!KNOWN_FM_KEYS.has(k)) issue('info', 1, 'Frontmatter', `Unknown frontmatter key: "${k}"`);
+  }
+
+  // ── Headings ────────────────────────────────────────────────────────────
+  const headings = [];
+  lines.forEach((raw, i) => {
+    if (i < fmEndLine) return;
+    const m = raw.match(/^(#{1,6})\s*(.*)/);
+    if (!m) return;
+    const level = m[1].length;
+    const text  = m[2].trim();
+    const ln    = i + 1;
+    if (!text) issue('err', ln, 'Headings', `Empty H${level} heading`, 'Add heading text or remove the # markers');
+    headings.push({ level, ln });
+  });
+
+  const bodyHeadings = headings.filter(h => h.ln > fmEndLine);
+  if (bodyHeadings.some(h => h.level === 1)) {
+    const h1ln = bodyHeadings.find(h => h.level === 1).ln;
+    issue('warn', h1ln, 'Headings', 'H1 in post body — Chirpy uses frontmatter title as H1', 'Use ## or lower for body headings');
+  }
+
+  for (let i = 1; i < bodyHeadings.length; i++) {
+    const prev = bodyHeadings[i - 1];
+    const cur  = bodyHeadings[i];
+    if (cur.level > prev.level + 1) {
+      issue('warn', cur.ln, 'Headings', `Heading jumps from H${prev.level} to H${cur.level}`, `Use H${prev.level + 1} to avoid accessibility gaps`);
+    }
+  }
+
+  const bodyLines = lines.slice(fmEndLine);
+  const hasContent = bodyLines.some(l => l.trim().length > 0);
+  if (hasContent && bodyHeadings.length === 0) {
+    issue('info', fmEndLine + 1, 'Headings', 'Post has no headings — consider adding section headings for readability');
+  }
+
+  // ── Images ──────────────────────────────────────────────────────────────
+  lines.forEach((raw, i) => {
+    if (i < fmEndLine) return;
+    const ln = i + 1;
+    const imgRe = /!\[([^\]]*)\]\(([^)]+)\)/g;
+    let m;
+    while ((m = imgRe.exec(raw)) !== null) {
+      if (!m[1].trim()) issue('warn', ln, 'Images', 'Image missing alt text', 'Add descriptive alt text: ![description](url)');
+    }
+  });
+
+  // ── Links ────────────────────────────────────────────────────────────────
+  lines.forEach((raw, i) => {
+    if (i < fmEndLine) return;
+    const ln = i + 1;
+    const linkRe = /(!?)\[([^\]]*)\]\(([^)]*)\)/g;
+    let m;
+    while ((m = linkRe.exec(raw)) !== null) {
+      if (m[1] === '!') continue; // skip images
+      const href = m[3].trim();
+      const text = m[2].trim();
+      if (!href) {
+        issue('warn', ln, 'Links', 'Link with empty URL', 'Add a destination URL or remove the link syntax');
+      } else if (/^https?:\/\/localhost/i.test(href)) {
+        issue('warn', ln, 'Links', `Link to localhost: "${href}"`, 'Replace with the production URL');
+      }
+      if (!text && href) {
+        issue('info', ln, 'Links', 'Empty link text — screen readers will read the raw URL', 'Add descriptive link text');
+      }
+    }
+  });
+
+  // ── Includes ─────────────────────────────────────────────────────────────
+  const includeRe = /\{%-?\s*include\s+([^%]+?)\s*-?%\}/g;
+  lines.forEach((raw, i) => {
+    if (i < fmEndLine) return;
+    const ln = i + 1;
+    let m;
+    while ((m = includeRe.exec(raw)) !== null) {
+      const { name, params } = parseIncludeArgs(m[1]);
+      if (!name) { issue('err', ln, 'Includes', '{% include %} with no filename'); continue; }
+      if (!(name in INCLUDE_REGISTRY)) continue;
+      const def = INCLUDE_REGISTRY[name];
+
+      for (const req of def.required) {
+        if (!(req in params)) issue('err', ln, 'Includes', `{% include ${name} %} missing required param: "${req}"`, `Add ${req}="..."`);
+      }
+
+      const allKnown = new Set([...def.required, ...def.optional]);
+      for (const k of Object.keys(params)) {
+        if (!allKnown.has(k)) issue('warn', ln, 'Includes', `{% include ${name} %} unknown param: "${k}"`, `Known params: ${[...allKnown].join(', ')}`);
+      }
+
+      if (name === 'embed/youtube.html' && params.vid && params.vid.length !== 11) {
+        issue('warn', ln, 'Includes', `YouTube vid="${params.vid}" is ${params.vid.length} chars (expected 11)`, 'Verify the video ID from the YouTube URL');
+      }
+      if (name === 'embed/map.html' && params.zoom !== undefined) {
+        const z = parseFloat(params.zoom);
+        if (isNaN(z) || z < 0 || z > 20) issue('warn', ln, 'Includes', `Map zoom="${params.zoom}" is outside 0–20`, 'Set zoom between 0 (world) and 20 (building-level)');
+      }
+
+      const wcSrcKeys = name === 'embed/image-compare.html' ? ['before','after'] : name === 'embed/image.html' ? ['src'] : [];
+      for (const k of wcSrcKeys) {
+        const v = params[k] || '';
+        if (v.startsWith('wc:')) {
+          const wcVal = v.slice(3);
+          if (!wcVal.trim()) {
+            issue('err', ln, 'Includes', `wc: source for "${k}" is empty`);
+          } else if (/ /.test(wcVal) && !wcVal.includes('%20')) {
+            issue('warn', ln, 'Includes', `wc: source for "${k}" contains spaces`, `Use underscores: wc:${wcVal.replace(/ /g, '_')}`);
+          }
+        }
+      }
+    }
+  });
+
+  // ── Footnotes ────────────────────────────────────────────────────────────
+  const fnRefs = new Map();
+  const fnDefs = new Map();
+  lines.forEach((raw, i) => {
+    if (i < fmEndLine) return;
+    const ln = i + 1;
+    const refRe = /\[\^([^\]]+)\](?!:)/g;
+    let m;
+    while ((m = refRe.exec(raw)) !== null) {
+      if (!fnRefs.has(m[1])) fnRefs.set(m[1], ln);
+    }
+    const dm = raw.match(/^\[\^([^\]]+)\]:/);
+    if (dm) fnDefs.set(dm[1], ln);
+  });
+  for (const [label, ln] of fnRefs) {
+    if (!fnDefs.has(label)) issue('warn', ln, 'Footnotes', `Footnote [^${label}] has no definition`, `Add [^${label}]: ... somewhere in the document`);
+  }
+  for (const [label, ln] of fnDefs) {
+    if (!fnRefs.has(label)) issue('info', ln, 'Footnotes', `Footnote definition [^${label}] is never referenced`);
+  }
+
+  // ── Content ──────────────────────────────────────────────────────────────
+  const wordCount = bodyLines.join(' ').replace(/<[^>]+>/g, '').replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w).length;
+  if (wordCount > 0 && wordCount < 150) {
+    issue('info', fmEndLine + 1, 'Content', `Post body is short (${wordCount} words) — consider expanding for better readability`);
+  }
+
+  lines.forEach((raw, i) => {
+    if (i < fmEndLine) return;
+    if (/\b(TODO|FIXME|HACK|XXX)\b/.test(raw)) {
+      issue('info', i + 1, 'Content', `Reminder marker: "${raw.trim().slice(0, 80)}"`, 'Resolve before publishing');
+    }
+  });
+
+  return issues;
+}
+
+function renderAuditPanel(issues) {
+  const panel   = document.getElementById('__audit-panel');
+  const summary = document.getElementById('__audit-summary');
+  const body    = document.getElementById('__audit-body');
+
+  const errs  = issues.filter(x => x.severity === 'err').length;
+  const warns = issues.filter(x => x.severity === 'warn').length;
+  const infos = issues.filter(x => x.severity === 'info').length;
+
+  const parts = [];
+  if (errs)  parts.push(`${errs} error${errs  > 1 ? 's' : ''}`);
+  if (warns) parts.push(`${warns} warning${warns > 1 ? 's' : ''}`);
+  if (infos) parts.push(`${infos} note${infos > 1 ? 's' : ''}`);
+  summary.textContent = parts.length ? parts.join(' · ') : 'No issues found';
+
+  const iconMap = { err: '●', warn: '▲', info: 'ℹ' };
+  if (!issues.length) {
+    body.innerHTML = '<div class="audit-none">✓ No issues found.</div>';
+  } else {
+    body.innerHTML = issues
+      .sort((a, b) => { const o = {err:0,warn:1,info:2}; return o[a.severity] - o[b.severity] || a.line - b.line; })
+      .map(iss => {
+        const icon = `<span class="audit-icon ${iss.severity}">${iconMap[iss.severity]}</span>`;
+        const loc  = `<span class="audit-loc">${iss.line ? 'L.' + iss.line : ''}</span>`;
+        const cat  = `<span class="audit-cat">${iss.category}</span>`;
+        const msg  = `<span class="audit-msg">${auditEsc(iss.msg)}</span>`;
+        const fix  = iss.fix ? `<span class="audit-fix">→ ${auditEsc(iss.fix)}</span>` : '';
+        return `<div class="audit-row">${icon}${loc}${cat}${msg}${fix}</div>`;
+      })
+      .join('');
+  }
+
+  panel.classList.add('open');
+}
+
+function auditEsc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+
+// ════════════════════════════════════════════════════════════════════════════
 //  CONTROLS
 // ════════════════════════════════════════════════════════════════════════════
 
 document.getElementById('pb-reload').addEventListener('click', () => {
   fetchCache.clear();
   render();
+});
+
+document.getElementById('pb-audit').addEventListener('click', async () => {
+  const payload = parsePayload();
+  if (!payload) return;
+  const { o, r, ref, p } = payload;
+  try {
+    const source = await fetchRepoFile(o, r, ref, p);
+    renderAuditPanel(runAudit(source));
+  } catch (err) {
+    setStatus('Audit failed: ' + err.message, 'err');
+  }
+});
+
+document.getElementById('__audit-close').addEventListener('click', () => {
+  document.getElementById('__audit-panel').classList.remove('open');
 });
 
 // ── Initial render on page load ──────────────────────────────────────────────
