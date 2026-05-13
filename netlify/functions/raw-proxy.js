@@ -3,17 +3,15 @@
 // Route (via netlify.toml redirect):
 //   GET /api/raw/:owner/:repo/:ref/*filepath
 //
-// This is needed because GitHub Pages does not serve Access-Control-Allow-Origin
-// headers for JS/CSS files, so assets loaded as ES modules from the srcdoc iframe
-// would be blocked. This proxy fetches from raw.githubusercontent.com and adds the
-// required CORS headers.
+// Text assets (JS, CSS, HTML, JSON) are fetched and re-served so we can add
+// CORS headers (GitHub Pages omits them for JS/CSS) and inject the postMessage
+// fix into HTML component files.
 //
-// For HTML files, a small script is injected that patches window.parent.postMessage
-// to strip the /api/raw/{o}/{r}/{ref} prefix from any src/url fields before the
-// message reaches storykit.js. Component iframes (image-compare.html, youtube.html,
-// etc.) construct their showDialog URL from window.location.pathname which includes
-// the proxy prefix; storykit.js's showDialog validation rejects anything that doesn't
-// start with /assets/, so we strip the prefix at the sender.
+// Binary assets (images, fonts, video, PDF) are NOT buffered through the
+// function — Netlify has a 6 MB response payload limit that large images
+// can exceed. Instead, a 302 redirect to raw.githubusercontent.com is returned.
+// CORS is not required for <img src> or font-face loading, so a redirect is
+// transparent to the browser.
 
 import path from 'path';
 
@@ -57,6 +55,20 @@ export async function handler(event) {
   if (token) ghHeaders['Authorization'] = `token ${token}`;
 
   const ext      = path.extname(filepath).slice(1).toLowerCase();
+
+  // Binary file types: redirect directly to raw.githubusercontent.com rather than
+  // buffering through the Function.  Netlify Functions cap responses at 6 MB;
+  // large images exceed this.  Browsers load images and fonts without needing
+  // CORS headers, so a 302 is transparent to the page.
+  const REDIRECT_EXTS = new Set([
+    'jpg','jpeg','png','gif','webp','bmp','tiff','tif','ico',
+    'pdf','mp4','webm','ogg','ogv','mov','avi','mp3','wav',
+    'woff','woff2','ttf','otf',
+  ]);
+  if (REDIRECT_EXTS.has(ext)) {
+    return { statusCode: 302, headers: { Location: rawUrl, 'Cache-Control': 'public, max-age=300' }, body: '' };
+  }
+
   const mimeType = MIME_TYPES[ext] || 'application/octet-stream';
   const corsHeaders = {
     'Content-Type': mimeType,
