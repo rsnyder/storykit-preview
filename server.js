@@ -222,21 +222,7 @@ app.get('/:owner/:repo/*', (req, res) => {
 // ── Root landing page ─────────────────────────────────────────────────────────
 
 app.get('/', (req, res) => {
-  res.send(`<!doctype html>
-<html><head><title>StoryKit Preview</title>
-<style>body{font-family:system-ui;max-width:700px;margin:3rem auto;padding:0 1rem}
-code{background:#f4f4f4;padding:.2em .4em;border-radius:3px}</style></head>
-<body>
-<h1>StoryKit Preview Service</h1>
-<p>Render a StoryKit page without waiting for a GitHub Pages build.</p>
-<h2>Usage</h2>
-<p><code>/<em>owner</em>/<em>repo</em>/<em>path/to/file.md</em></code></p>
-<p>Optional: add <code>?branch=my-branch</code> to preview a specific branch (default: <code>main</code>).</p>
-<h2>Example</h2>
-<p><a href="/rsnyder/storykit-starter/_posts/2026-01-10-monument-valley.md">
-/rsnyder/storykit-starter/_posts/2026-01-10-monument-valley.md</a></p>
-${LOCAL_REPO_PATH ? `<p><strong>Local mode:</strong> reading from <code>${LOCAL_REPO_PATH}</code></p>` : ''}
-</body></html>`);
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────

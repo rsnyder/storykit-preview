@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>StoryKit Preview</title>
+  <!-- Favicon — shows as the bookmarklet icon after dragging from this page -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='16' fill='%230969da'/%3E%3Cellipse cx='16' cy='16' rx='9' ry='5.5' fill='none' stroke='white' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='2.5' fill='white'/%3E%3C/svg%3E">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 16px;
+      line-height: 1.65;
+      color: #24292f;
+      background: #f6f8fa;
+      margin: 0;
+      padding: 2.5rem 1rem 4rem;
+    }
+
+    main {
+      max-width: 660px;
+      margin: 0 auto;
+      background: #ffffff;
+      border: 1px solid #d0d7de;
+      border-radius: 10px;
+      padding: 2.5rem 2.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,.06);
+    }
+
+    /* ── Header ── */
+    .site-header { margin-bottom: 2.25rem; }
+    .site-header h1 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      margin: 0 0 .3rem;
+      letter-spacing: -.01em;
+    }
+    .site-header p {
+      color: #57606a;
+      margin: 0;
+      font-size: 1rem;
+    }
+
+    /* ── Section headings ── */
+    h2 {
+      font-size: 1.05rem;
+      font-weight: 600;
+      margin: 0 0 1.1rem;
+      padding-bottom: .5rem;
+      border-bottom: 1px solid #d0d7de;
+      color: #1f2328;
+    }
+    section { margin-bottom: 2.25rem; }
+    section:last-child { margin-bottom: 0; }
+
+    /* ── Numbered steps ── */
+    .steps { display: flex; flex-direction: column; gap: 1.1rem; }
+    .step  { display: flex; gap: .9rem; align-items: flex-start; }
+    .step-num {
+      background: #0969da;
+      color: #fff;
+      border-radius: 50%;
+      min-width: 1.55rem;
+      height: 1.55rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: .78rem;
+      font-weight: 700;
+      flex-shrink: 0;
+      margin-top: .15rem;
+    }
+    .step-body { flex: 1; }
+
+    /* ── Drag zone + bookmarklet button ── */
+    .drag-zone {
+      background: #f6f8fa;
+      border: 2px dashed #c8d0d8;
+      border-radius: 8px;
+      padding: 1.4rem 1rem;
+      text-align: center;
+      margin: .75rem 0 .25rem;
+    }
+    .bookmarklet-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: .5rem;
+      background: linear-gradient(160deg, #218bff 0%, #0969da 100%);
+      color: #fff;
+      text-decoration: none;
+      padding: .5rem 1.2rem .5rem 1rem;
+      border-radius: 6px;
+      font-size: .95rem;
+      font-weight: 600;
+      border: 1px solid rgba(0,0,0,.15);
+      box-shadow: 0 1px 3px rgba(0,0,0,.2), inset 0 1px 0 rgba(255,255,255,.12);
+      cursor: grab;
+      user-select: none;
+      -webkit-user-drag: element;
+    }
+    .bookmarklet-btn:active { cursor: grabbing; }
+    .bookmarklet-btn svg { flex-shrink: 0; }
+    .drag-hint {
+      margin: .65rem 0 0;
+      font-size: .82rem;
+      color: #57606a;
+    }
+    .drag-hint::before { content: "↑ "; }
+
+    /* ── Inline note / callout ── */
+    .note {
+      background: #fff8c5;
+      border: 1px solid #d4a72c;
+      border-left: 4px solid #d4a72c;
+      border-radius: 6px;
+      padding: .7rem 1rem;
+      font-size: .875rem;
+      color: #4b3000;
+      margin-top: 1.1rem;
+    }
+
+    /* ── Typography helpers ── */
+    kbd {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: .8em;
+      background: #f6f8fa;
+      border: 1px solid #c8d0d8;
+      border-radius: 4px;
+      padding: .15em .45em;
+      box-shadow: 0 1px 0 #c8d0d8;
+    }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: .875em;
+      background: #f6f8fa;
+      border: 1px solid #e6eaef;
+      border-radius: 4px;
+      padding: .1em .35em;
+    }
+    pre {
+      background: #f6f8fa;
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      padding: .9rem 1.2rem;
+      overflow-x: auto;
+      font-size: .875rem;
+      margin: .6rem 0 .9rem;
+    }
+    pre code { background: none; border: none; padding: 0; font-size: inherit; }
+    em { font-style: italic; color: #57606a; }
+
+    p { margin: .6rem 0; }
+    a { color: #0969da; }
+    a:hover { text-decoration: underline; }
+    .example-link { word-break: break-all; }
+  </style>
+</head>
+<body>
+<main>
+
+  <header class="site-header">
+    <h1>StoryKit Preview</h1>
+    <p>Render a StoryKit markdown post instantly — no GitHub Pages build required.</p>
+  </header>
+
+  <!-- ── Bookmarklet setup ─────────────────────────────────────────────────── -->
+  <section>
+    <h2>Browser Bookmarklet Setup</h2>
+    <div class="steps">
+
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          Make sure your bookmarks bar is visible.<br>
+          <kbd>⌘⇧B</kbd> on Mac &nbsp;·&nbsp; <kbd>Ctrl+Shift+B</kbd> on Windows / Linux
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          Drag the button below to your bookmarks bar:
+          <div class="drag-zone">
+            <a id="bookmarklet" href="#" class="bookmarklet-btn">
+            <!-- GitHub mark (Octicons) -->
+            <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+            </svg>
+            Preview on GitHub
+          </a>
+            <p class="drag-hint">drag to your bookmarks bar</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          Navigate to any <code>.md</code> file in your repository on GitHub, then click
+          the bookmarklet to open a live preview in a new tab.
+        </div>
+      </div>
+
+    </div>
+
+    <p class="note">
+      The bookmarklet only works on GitHub <code>blob</code> URLs for <code>.md</code> files —
+      e.g. <code>github.com/owner/repo/blob/main/path/to/post.md</code>.
+      Clicking it anywhere else shows an alert.
+    </p>
+  </section>
+
+  <!-- ── Direct URL ────────────────────────────────────────────────────────── -->
+  <section>
+    <h2>Direct URL</h2>
+    <p>You can also open a preview by constructing the URL directly:</p>
+    <pre><code>/<em>owner</em>/<em>repo</em>/<em>path/to/file.md</em></code></pre>
+    <p>
+      Add <code>?branch=<em>branch-name</em></code> to preview a non-default branch
+      (default: <code>main</code>).
+    </p>
+    <p>
+      Example: <a class="example-link"
+        href="/rsnyder/storykit-starter/_posts/2026-01-10-monument-valley.md">
+        /rsnyder/storykit-starter/_posts/2026-01-10-monument-valley.md</a>
+    </p>
+  </section>
+
+</main>
+
+<script>
+  (function () {
+    // Build the bookmarklet href dynamically so it always points back to this
+    // service, regardless of whether we're running locally or on Netlify.
+    var origin = window.location.origin;
+    var js =
+      '(function(){' +
+        'var m=/^https?:\\/\\/github\\.com\\/([^\\/]+)\\/([^\\/]+)\\/blob\\/([^\\/]+)\\/(.+\\.md)(\\?.*)?$/.exec(location.href);' +
+        'if(m)window.open(' + JSON.stringify(origin) + '+\'/\'+m[1]+\'/\'+m[2]+\'/\'+m[4]+\'?branch=\'+encodeURIComponent(m[3]));' +
+        'else alert(\'Please navigate to a .md file on GitHub first.\');' +
+      '})();';
+    document.getElementById('bookmarklet').href = 'javascript:' + js;
+  })();
+</script>
+</body>
+</html>
